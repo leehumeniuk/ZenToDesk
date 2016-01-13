@@ -6,7 +6,7 @@ require 'json'
 include REXML
 
 #variables
-xmlfile = File.new("Tickets/Tickets0.xml")
+xmlfile = File.new(".xml")
 xmldoc = Document.new(xmlfile)
 root = xmldoc.root
 externalId = 0
@@ -14,22 +14,19 @@ subject = ""
 createdAt = ""
 resolvedAt = ""
 description = ""
-comments = []
-finalComments = ""
 count = 1
-success = 0
-failed = 0
+totals = []
 
 #methods
 #create case object and send to Desk
-def CreateCase(success, failed, subject, createdAt, resolvedAt, description, count, externalId, finalComments)
+def CreateCase(subject, createdAt, resolvedAt, description, count, externalId)
   uri = URI('https://yoursite.desk.com/api/v2/cases') # POST URI
   req = Net::HTTP::Post.new(uri.path, {'Content-Type' => 'application/json'}) #set Post object (uri and content type header)
-  req.basic_auth 'email', 'password' #set Post object (auth)
+  req.basic_auth '', '' #set Post object (auth)
 
   #set Post object body && convert to json (contents of ticket)
   req.body = {type: "email", external_id: "#{externalId}", subject: "#{subject}", priority: 4, status: "open", labels: ["archive"], created_at: "#{createdAt}", resolved_at: "#{resolvedAt}",message: {
-    direction: "in", subject: "#{subject}",body: "#{description}", to: "", from: "", created_at: "#{createdAt}"},replies: {direction: "in", body:"#{finalComments}"}}.to_json
+    direction: "in", subject: "#{subject}",body: "#{description}", to: "", from: "", created_at: "#{createdAt}"}}.to_json
 
   #send the request
   res = Net::HTTP.start(uri.hostname, uri.port,
@@ -38,17 +35,24 @@ def CreateCase(success, failed, subject, createdAt, resolvedAt, description, cou
     end
   if res.is_a?(Net::HTTPSuccess)
     puts "Case Created!"
-    success = success+1
+    f = File.open("successLog.txt","a")
+    f.write("#{res.body}\n")
+    f.close
+    return true
   else
-    "Oops! Case not created."
-    failed = failed+1
+    puts "Oops! Case not created."
+    #error logging
+    f = File.open("errorLog.txt","a")
+    f.write("#{res.body}")
+    f.close
+    return false
   end
-  return
 end
 
 #parse xml file and send request to Desk
-def ParseXML(root, subject, createdAt, resolvedAt, description, comments, count, externalId, success, failed, finalComments)
+def ParseXML(root, subject, createdAt, resolvedAt, description, count, externalId)
 
+totalsParsed = [0,0]
 currentNode = root.children[1]
 
   while root
@@ -59,18 +63,26 @@ currentNode = root.children[1]
     createdAt = currentNode.elements["created-at"].text
     resolvedAt = currentNode.elements["solved-at"].text
     description = currentNode.elements["description"].text
-    currentNode.elements.each("comments/comment/value") { |element| comments.push(element.text)}
-    comments.each {|e| finalComments << e}
+    #currentNode.elements.each("comments/comment/value") { |element| comments.push(element.text)}
+    #comments.each {|e| finalComments << e}
 
     #account for 500 API requests per minute
     if count == 500
       #pause 60 seconds then create case
       sleep(60)
-      CreateCase(success, failed, subject, createdAt, resolvedAt, description, count, externalId, finalComments) #HTTP Request
-      count = 1
+      if CreateCase(subject, createdAt, resolvedAt, description, count, externalId) #HTTP Request
+        totalsParsed[0] = totalsParsed[0] + 1 #success
+      else
+        totalsParsed[1] = totalsParsed[1] + 1 #failed
+      end
+      count = 1 #reset request count
     else
-    CreateCase(success, failed, subject, createdAt, resolvedAt, description, count, externalId, finalComments) #HTTP Request
-    count=count+1
+      if CreateCase(subject, createdAt, resolvedAt, description, count, externalId) #HTTP Request
+        totalsParsed[0] = totalsParsed[0] + 1 #success
+      else
+        totalsParsed[1] = totalsParsed[1] + 1 #failed
+      end
+      count=count+1 #increment request count
     end
 
     #have to move two siblings over for some reason - count is correct
@@ -86,9 +98,10 @@ currentNode = root.children[1]
     end
 
   end
-  return
+  return totalsParsed
 end
 
-ParseXML(root, subject, createdAt, resolvedAt, description, comments, count, externalId, success, failed, finalComments)
-puts "Tickets created: #{success}"
-puts "Failed imports: #{failed}"
+#main
+totals = ParseXML(root, subject, createdAt, resolvedAt, description, count, externalId)
+puts "Tickets created: #{totals[0]}"
+puts "Failed imports: #{totals[1]}"
