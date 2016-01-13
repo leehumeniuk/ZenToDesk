@@ -6,96 +6,74 @@ require 'json'
 
 #variables
 xmlfile = File.new(".xml")
-xmldoc = REXML::Document.new(xmlfile)
-root = xmldoc.root
-count = 1
-totals = []
 
-#methods
-#create case object and send to Desk
-def CreateCase(subject, createdAt, resolvedAt, description, count, externalId)
-  uri = URI('https://yoursite.desk.com/api/v2/cases') # POST URI
-  req = Net::HTTP::Post.new(uri.path, {'Content-Type' => 'application/json'}) #set Post object (uri and content type header)
-  req.basic_auth '', '' #set Post object (auth)
-
-  #set Post object body && convert to json (contents of ticket)
-  req.body = {type: "email", external_id: "#{externalId}", subject: "#{subject}", priority: 4, status: "open", labels: ["archive"], created_at: "#{createdAt}", resolved_at: "#{resolvedAt}",message: {
-    direction: "in", subject: "#{subject}",body: "#{description}", to: "", from: "", created_at: "#{createdAt}"}}.to_json
-
-  #send the request
-  res = Net::HTTP.start(uri.hostname, uri.port,
-    :use_ssl => uri.scheme == 'https') do |http|
-      http.request(req)
+MigratesCases = Struct.new(:file) do
+  def parse_xml(doc)
+    doc.elements.to_a('tickets/ticket').each_slice(500) do |batch|
+      batch.each do |node|
+        parse_node(node)
+      end
+      sleep(60) # 500 API req/s
     end
-  if res.is_a?(Net::HTTPSuccess)
-    puts "Case Created!"
-    f = File.open("successLog.txt","a")
-    f.write("#{res.body}\n")
-    f.close
-    return true
-  else
-    puts "Oops! Case not created."
-    #error logging
-    f = File.open("errorLog.txt","a")
-    f.write("#{res.body}")
-    f.close
-    return false
   end
-end
 
-#parse xml file and send request to Desk
-def ParseXML(root)
+  def parse_node(node)
+    external_id = node.elements['nice-id'].text
+    subject = node.elements['subject'].text
+    created_at = node.elements['created-at'].text
+    resolved_at = node.elements['solved-at'].text
+    description = node.elements['description'].text
 
-totalsParsed = [0,0]
-currentNode = root.children[1]
-
-  while root
-
-    #storing data in variables
-    externalId = currentNode.elements["nice-id"].text
-    subject = currentNode.elements["subject"].text
-    createdAt = currentNode.elements["created-at"].text
-    resolvedAt = currentNode.elements["solved-at"].text
-    description = currentNode.elements["description"].text
     #currentNode.elements.each("comments/comment/value") { |element| comments.push(element.text)}
     #comments.each {|e| finalComments << e}
 
-    #account for 500 API requests per minute
-    if count == 500
-      #pause 60 seconds then create case
-      sleep(60)
-      if CreateCase(subject, createdAt, resolvedAt, description, count, externalId) #HTTP Request
-        totalsParsed[0] = totalsParsed[0] + 1 #success
-      else
-        totalsParsed[1] = totalsParsed[1] + 1 #failed
-      end
-      count = 1 #reset request count
-    else
-      if CreateCase(subject, createdAt, resolvedAt, description, count, externalId) #HTTP Request
-        totalsParsed[0] = totalsParsed[0] + 1 #success
-      else
-        totalsParsed[1] = totalsParsed[1] + 1 #failed
-      end
-      count=count+1 #increment request count
-    end
-
-    #have to move two siblings over for some reason - count is correct
-    if currentNode.next_sibling.nil?
-      break
-    else
-      currentNode = currentNode.next_sibling
-    end
-    if currentNode.next_sibling.nil?
-      break
-    else
-      currentNode = currentNode.next_sibling
-    end
-
+    create_case(subject, created_at, resolved_at, description, external_id)
   end
-  return totalsParsed
+
+  def create_case(subject, created_at, resolved_at, description, external_id)
+    uri = URI('https://yoursite.desk.com/api/v2/cases') # POST URI
+    req = Net::HTTP::Post.new(uri.path, 'Content-Type' => 'application/json') #set Post object (uri and content type header)
+    req.basic_auth '', '' #set Post object (auth)
+
+    # set Post object body && convert to json (contents of ticket)
+    req.body = {
+      type: 'email',
+      external_id: external_id.to_s,
+      subject: subject.to_s,
+      priority: 4,
+      status: 'open',
+      labels: ['archive'],
+      created_at: created_at.to_s,
+      resolved_at: resolved_at.to_s,
+      message: {
+        direction: 'in',
+        subject: subject.to_s,
+        body: description.to_s,
+        to: '',
+        from: '',
+        created_at: created_at.to_s
+      }
+    }.to_json
+
+    #send the request
+    res = Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == 'https') do |http|
+      http.request(req)
+    end
+
+    case res
+    when Net::HTTPSuccess
+      # sounds good...
+    else
+      puts "Failed migrating #{external_id}"
+      puts res.body
+    end
+  end
+
+  def xml_doc
+    @xml_doc ||= REXML::Document.new(file)
+  end
 end
 
 #main
-totals = ParseXML(root)
-puts "Tickets created: #{totals[0]}"
-puts "Failed imports: #{totals[1]}"
+migrator = MigratesCases.new(xmlfile)
+migrator.migrate
