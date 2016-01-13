@@ -8,11 +8,6 @@ require 'json'
 xmlfile = File.new(".xml")
 xmldoc = REXML::Document.new(xmlfile)
 root = xmldoc.root
-externalId = 0
-subject = ""
-createdAt = ""
-resolvedAt = ""
-description = ""
 count = 1
 totals = []
 
@@ -49,7 +44,7 @@ def CreateCase(subject, createdAt, resolvedAt, description, count, externalId)
 end
 
 #parse xml file and send request to Desk
-def ParseXML(root, subject, createdAt, resolvedAt, description, count, externalId)
+def ParseXML(root)
 
 totalsParsed = [0,0]
 currentNode = root.children[1]
@@ -101,6 +96,6 @@ currentNode = root.children[1]
 end
 
 #main
-totals = ParseXML(root, subject, createdAt, resolvedAt, description, count, externalId)
+totals = ParseXML(root)
 puts "Tickets created: #{totals[0]}"
 puts "Failed imports: #{totals[1]}"
