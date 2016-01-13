@@ -3,11 +3,10 @@
 require 'rexml/document'
 require 'net/http'
 require 'json'
-include REXML
 
 #variables
 xmlfile = File.new(".xml")
-xmldoc = Document.new(xmlfile)
+xmldoc = REXML::Document.new(xmlfile)
 root = xmldoc.root
 externalId = 0
 subject = ""
