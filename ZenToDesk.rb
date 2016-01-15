@@ -1,19 +1,38 @@
 #!/usr/bin/ruby -w
 
+#require
 require 'rexml/document'
 require 'net/http'
 require 'json'
 
 #methods
+
 #create case object and send to Desk
-def CreateCase(subject, created_at, resolved_at, description, count, external_id, s, e)
+def create_case(subject, created_at, resolved_at, description, count, external_id, s, e)
   uri = URI('https://yoursite.desk.com/api/v2/cases') # POST URI
   req = Net::HTTP::Post.new(uri.path, {'Content-Type' => 'application/json'}) #set Post object (uri and content type header)
   req.basic_auth '<email>', '<password>' #set Post object (auth)
 
   #set Post object body && convert to json (contents of ticket)
-  req.body = {type: "email", external_id: "#{external_id}", subject: "#{subject}", priority: 4, status: "open", labels: ["archive"], created_at: "#{created_at}", resolved_at: "#{resolved_at}",message: {
-    direction: "in", subject: "#{subject}",body: "#{description}", to: "<email>", from: "<email>", created_at: "#{created_at}"}}.to_json
+  req.body =
+  {
+    type: "email",
+    external_id: "#{external_id}",
+    subject: "#{subject}",
+    priority: 4,
+    status: "open",
+    labels: ["archive"],
+    created_at: "#{created_at}",
+    resolved_at: "#{resolved_at}",
+    message: {
+      direction: "in",
+      subject: "#{subject}",
+      body: "#{description}",
+      to: "<email>",
+      from: "<email>",
+      created_at: "#{created_at}"
+    }
+  }.to_json
 
   #send the request
   res = Net::HTTP.start(uri.hostname, uri.port,
@@ -22,6 +41,7 @@ def CreateCase(subject, created_at, resolved_at, description, count, external_id
     end
   if res.is_a?(Net::HTTPSuccess)
     puts "Case Created!"
+    #success logging
     s.write("#{res.body}\n")
     return true
   else
@@ -33,7 +53,7 @@ def CreateCase(subject, created_at, resolved_at, description, count, external_id
 end
 
 #parse xml file and send request to Desk
-def ParseXML()
+def parse_xml()
   include REXML
 
   xmlfile = File.new("Tickets.xml")
@@ -59,8 +79,6 @@ def ParseXML()
     created_at = current_node.elements["created-at"].text
     resolved_at = current_node.elements["solved-at"].text
     description = current_node.elements["description"].text
-    #currentNode.elements.each("comments/comment/value") { |element| comments.push(element.text)}
-    #comments.each {|e| finalComments << e}
 
     #account for 500 API requests per minute
     if count == 500
@@ -69,7 +87,7 @@ def ParseXML()
       count = 0
     end
 
-    if CreateCase(subject, created_at, resolved_at, description, count, external_id, s, e) #HTTP Request
+    if create_case(subject, created_at, resolved_at, description, count, external_id, s, e) #HTTP Request
       totals_parsed[0] += 1 #success
       count += 1 #increment request count
     else
@@ -97,7 +115,7 @@ end
 
 #main
 
-totals = ParseXML()
+totals = parse_xml()
 
 puts "Tickets created: #{totals[0]}"
 puts "Failed imports: #{totals[1]}"
