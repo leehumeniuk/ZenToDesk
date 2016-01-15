@@ -3,30 +3,17 @@
 require 'rexml/document'
 require 'net/http'
 require 'json'
-include REXML
-
-#variables
-xmlfile = File.new(".xml")
-xmldoc = Document.new(xmlfile)
-root = xmldoc.root
-externalId = 0
-subject = ""
-createdAt = ""
-resolvedAt = ""
-description = ""
-count = 1
-totals = []
 
 #methods
 #create case object and send to Desk
-def CreateCase(subject, createdAt, resolvedAt, description, count, externalId)
+def CreateCase(subject, created_at, resolved_at, description, count, external_id, s, e)
   uri = URI('https://yoursite.desk.com/api/v2/cases') # POST URI
   req = Net::HTTP::Post.new(uri.path, {'Content-Type' => 'application/json'}) #set Post object (uri and content type header)
-  req.basic_auth '', '' #set Post object (auth)
+  req.basic_auth '<email>', '<password>' #set Post object (auth)
 
   #set Post object body && convert to json (contents of ticket)
-  req.body = {type: "email", external_id: "#{externalId}", subject: "#{subject}", priority: 4, status: "open", labels: ["archive"], created_at: "#{createdAt}", resolved_at: "#{resolvedAt}",message: {
-    direction: "in", subject: "#{subject}",body: "#{description}", to: "", from: "", created_at: "#{createdAt}"}}.to_json
+  req.body = {type: "email", external_id: "#{external_id}", subject: "#{subject}", priority: 4, status: "open", labels: ["archive"], created_at: "#{created_at}", resolved_at: "#{resolved_at}",message: {
+    direction: "in", subject: "#{subject}",body: "#{description}", to: "<email>", from: "<email>", created_at: "#{created_at}"}}.to_json
 
   #send the request
   res = Net::HTTP.start(uri.hostname, uri.port,
@@ -35,73 +22,82 @@ def CreateCase(subject, createdAt, resolvedAt, description, count, externalId)
     end
   if res.is_a?(Net::HTTPSuccess)
     puts "Case Created!"
-    f = File.open("successLog.txt","a")
-    f.write("#{res.body}\n")
-    f.close
+    s.write("#{res.body}\n")
     return true
   else
     puts "Oops! Case not created."
     #error logging
-    f = File.open("errorLog.txt","a")
-    f.write("#{res.body}")
-    f.close
+    e.write("#{res.body}")
     return false
   end
 end
 
 #parse xml file and send request to Desk
-def ParseXML(root, subject, createdAt, resolvedAt, description, count, externalId)
+def ParseXML()
+  include REXML
 
-totalsParsed = [0,0]
-currentNode = root.children[1]
+  xmlfile = File.new("Tickets.xml")
+  xmldoc = Document.new(xmlfile)
+  root = xmldoc.root
+  external_id = 0
+  subject = ""
+  created_at = ""
+  resolved_at = ""
+  description = ""
+  count = 0
+  totals_parsed = [0,0]
+  current_node = root.children[1]
+
+  s = File.open("successLog.txt","a")
+  e = File.open("errorLog.txt","a")
 
   while root
 
     #storing data in variables
-    externalId = currentNode.elements["nice-id"].text
-    subject = currentNode.elements["subject"].text
-    createdAt = currentNode.elements["created-at"].text
-    resolvedAt = currentNode.elements["solved-at"].text
-    description = currentNode.elements["description"].text
+    external_id = current_node.elements["nice-id"].text
+    subject = current_node.elements["subject"].text
+    created_at = current_node.elements["created-at"].text
+    resolved_at = current_node.elements["solved-at"].text
+    description = current_node.elements["description"].text
     #currentNode.elements.each("comments/comment/value") { |element| comments.push(element.text)}
     #comments.each {|e| finalComments << e}
 
     #account for 500 API requests per minute
     if count == 500
-      #pause 60 seconds then create case
+      #pause 60 seconds then reset count
       sleep(60)
-      if CreateCase(subject, createdAt, resolvedAt, description, count, externalId) #HTTP Request
-        totalsParsed[0] = totalsParsed[0] + 1 #success
-      else
-        totalsParsed[1] = totalsParsed[1] + 1 #failed
-      end
-      count = 1 #reset request count
+      count = 0
+    end
+
+    if CreateCase(subject, created_at, resolved_at, description, count, external_id, s, e) #HTTP Request
+      totals_parsed[0] += 1 #success
+      count += 1 #increment request count
     else
-      if CreateCase(subject, createdAt, resolvedAt, description, count, externalId) #HTTP Request
-        totalsParsed[0] = totalsParsed[0] + 1 #success
-      else
-        totalsParsed[1] = totalsParsed[1] + 1 #failed
-      end
-      count=count+1 #increment request count
+      totals_parsed[1] += 1 #failed
+      count += 1 #increment request count
     end
 
     #have to move two siblings over for some reason - count is correct
-    if currentNode.next_sibling.nil?
+    if current_node.next_sibling.nil?
       break
     else
-      currentNode = currentNode.next_sibling
+      current_node = current_node.next_sibling
     end
-    if currentNode.next_sibling.nil?
+    if current_node.next_sibling.nil?
       break
     else
-      currentNode = currentNode.next_sibling
+      current_node = current_node.next_sibling
     end
 
   end
-  return totalsParsed
+  s.close
+  e.close
+  return totals_parsed
 end
 
 #main
-totals = ParseXML(root, subject, createdAt, resolvedAt, description, count, externalId)
+
+totals = ParseXML()
+
 puts "Tickets created: #{totals[0]}"
 puts "Failed imports: #{totals[1]}"
